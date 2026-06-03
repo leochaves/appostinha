@@ -6,7 +6,7 @@ FLUTTER_DIR="/opt/flutter"
 
 if [ ! -d "$FLUTTER_DIR" ]; then
   curl -fsSL "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz" \
-    | tar xf - -C /opt
+    | tar xJf - -C /opt
 fi
 
 export PATH="$PATH:$FLUTTER_DIR/bin"
