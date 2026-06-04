@@ -17,20 +17,9 @@ class AppShell extends StatelessWidget {
     final onPerfil = location == '/perfil';
 
     return Scaffold(
-      backgroundColor: const Color(0xFF1a1a2e),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 480),
-          child: Container(
-            color: const Color(0xFF0D1117),
-            child: child,
-          ),
-        ),
-      ),
-      bottomNavigationBar: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 480),
-          child: Container(
+      backgroundColor: const Color(0xFF0D1117),
+      body: child,
+      bottomNavigationBar: Container(
         decoration: const BoxDecoration(
           color: _bg,
           border: Border(top: BorderSide(color: _border, width: 0.5)),
@@ -58,8 +47,6 @@ class AppShell extends StatelessWidget {
               ],
             ),
           ),
-        ),
-      ),
         ),
       ),
     );

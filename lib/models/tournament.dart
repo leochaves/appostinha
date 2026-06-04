@@ -6,6 +6,7 @@ class Tournament {
   final String status;
   final DateTime createdAt;
   final String? votingCode;
+  final String? slug;
 
   Tournament({
     required this.id,
@@ -15,6 +16,7 @@ class Tournament {
     required this.status,
     required this.createdAt,
     this.votingCode,
+    this.slug,
   });
 
   bool get isActive => status == 'active';
@@ -28,5 +30,6 @@ class Tournament {
         status: json['status'] as String? ?? 'active',
         createdAt: DateTime.parse(json['created_at'] as String),
         votingCode: json['voting_code'] as String?,
+        slug: json['slug'] as String?,
       );
 }

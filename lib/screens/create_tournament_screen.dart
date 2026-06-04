@@ -41,6 +41,7 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
       }
       await Supabase.instance.client.from('tournaments').insert({
         'name': name,
+        'slug': _toSlug(name),
         'description': _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
         'created_by': userId,
       });
@@ -94,6 +95,30 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
         ),
       ),
     );
+  }
+
+  String _toSlug(String name) {
+    final accents = {
+      'à': 'a', 'á': 'a', 'â': 'a', 'ã': 'a', 'ä': 'a',
+      'è': 'e', 'é': 'e', 'ê': 'e', 'ë': 'e',
+      'ì': 'i', 'í': 'i', 'î': 'i', 'ï': 'i',
+      'ò': 'o', 'ó': 'o', 'ô': 'o', 'õ': 'o', 'ö': 'o',
+      'ù': 'u', 'ú': 'u', 'û': 'u', 'ü': 'u',
+      'ý': 'y', 'ç': 'c', 'ñ': 'n',
+      'À': 'a', 'Á': 'a', 'Â': 'a', 'Ã': 'a', 'Ä': 'a',
+      'È': 'e', 'É': 'e', 'Ê': 'e', 'Ë': 'e',
+      'Ì': 'i', 'Í': 'i', 'Î': 'i', 'Ï': 'i',
+      'Ò': 'o', 'Ó': 'o', 'Ô': 'o', 'Õ': 'o', 'Ö': 'o',
+      'Ù': 'u', 'Ú': 'u', 'Û': 'u', 'Ü': 'u',
+      'Ý': 'y', 'Ç': 'c', 'Ñ': 'n',
+    };
+    var s = name;
+    accents.forEach((from, to) => s = s.replaceAll(from, to));
+    return s
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9\s]'), '')
+        .trim()
+        .replaceAll(RegExp(r'\s+'), '-');
   }
 
   InputDecoration _inputDec(String label) => InputDecoration(

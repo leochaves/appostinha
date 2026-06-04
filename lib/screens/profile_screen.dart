@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/profile.dart';
 import '../models/bet.dart';
@@ -26,7 +27,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _load() async {
     final userId = Supabase.instance.client.auth.currentUser?.id;
-    if (userId == null) return;
+    if (userId == null) {
+      if (mounted) WidgetsBinding.instance.addPostFrameCallback((_) => context.go('/auth'));
+      return;
+    }
     try {
       final results = await Future.wait([
         Supabase.instance.client.from('profiles').select().eq('id', userId).single(),
@@ -58,7 +62,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _logout() async {
     await Supabase.instance.client.auth.signOut();
-    // go_router vai redirecionar automaticamente via authNotifier
+    if (mounted) context.go('/auth');
   }
 
   @override

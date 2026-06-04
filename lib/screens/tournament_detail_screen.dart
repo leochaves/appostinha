@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/tournament.dart';
 import '../models/category_model.dart';
 import '../models/event.dart';
+import '../widgets/event_card.dart';
 import 'admins_screen.dart';
 import 'create_category_screen.dart';
 import 'create_event_screen.dart';
@@ -41,6 +42,8 @@ class TournamentDetailScreen extends StatefulWidget {
 class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
   List<_CategoryWithEvents> _sections = [];
   List<_LeaderEntry> _top3 = [];
+  Map<String, String> _votedOptions = {}; // eventId → optionId
+  String? _filterCategoryId;
   bool _loading = true;
   String? _adminRole;
 
@@ -130,8 +133,19 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
         }
       } catch (_) {}
 
+      // busca eventos votados pelo usuário
+      Map<String, String> votedIds = {};
+      if (userId != null) {
+        final betsData = await Supabase.instance.client
+            .from('bets')
+            .select('event_id, option_id')
+            .eq('user_id', userId);
+        votedIds = {for (final b in betsData as List) b['event_id'] as String: b['option_id'] as String};
+      }
+
       if (mounted) {
         setState(() {
+          _votedOptions = votedIds;
           _sections = categories
               .map((c) => _CategoryWithEvents(
                     category: c,
@@ -432,7 +446,7 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
               subtitle: widget.tournament.isActive ? 'Ativo' : 'Encerrado',
               isActive: widget.tournament.isActive,
               onBack: () => context.canPop() ? context.pop() : context.go('/'),
-              onLeaderboard: () => context.push('/torneio/${widget.tournament.id}/leaderboard'),
+              onLeaderboard: () => context.push('/torneio/${widget.tournament.slug ?? widget.tournament.id}/leaderboard'),
               onVotingCode: _isOwner ? _editVotingCode : null,
               onAward: _isOwner ? _awardChampions : null,
               onAdmins: _isOwner
@@ -530,7 +544,7 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
         _descriptionCard(),
         if (_top3.isNotEmpty) _LeaderboardCard(
           top3: _top3,
-          onViewAll: () => context.push('/torneio/${widget.tournament.id}/leaderboard'),
+          onViewAll: () => context.push('/torneio/${widget.tournament.slug ?? widget.tournament.id}/leaderboard'),
         ),
         const SizedBox(height: 80),
         Center(
@@ -548,22 +562,99 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
 
   Widget _body() {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+      padding: const EdgeInsets.fromLTRB(0, 12, 0, 100),
       children: [
-        _descriptionCard(),
-        if (_top3.isNotEmpty) _LeaderboardCard(
-          top3: _top3,
-          onViewAll: () => context.push('/torneio/${widget.tournament.id}/leaderboard'),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: _descriptionCard(),
         ),
-        ..._sections.map((s) => _CategorySection(
+        if (_top3.isNotEmpty) Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: _LeaderboardCard(
+            top3: _top3,
+            onViewAll: () => context.push('/torneio/${widget.tournament.slug ?? widget.tournament.id}/leaderboard'),
+          ),
+        ),
+        // chips de filtro por categoria
+        if (_sections.length > 1)
+          _CategoryFilterRow(
+            sections: _sections,
+            selectedId: _filterCategoryId,
+            onTap: (id) => setState(() =>
+                _filterCategoryId = _filterCategoryId == id ? null : id),
+          ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+        ..._sections
+            .where((s) => _filterCategoryId == null || s.category.id == _filterCategoryId)
+            .map((s) => _CategorySection(
               section: s,
               isAdmin: _isAdmin,
               tournamentName: widget.tournament.name,
               onTapEvent: (e, b) => _openEvent(e, b),
               onCreateEvent: () => _openCreateEvent(s.category.id),
               onDeleteCategory: _isAdmin ? () => _deleteCategory(s.category) : null,
+              votedOptions: _votedOptions,
+              onBreadcrumbTap: () => setState(() =>
+                _filterCategoryId = _filterCategoryId == s.category.id ? null : s.category.id,
+              ),
             )).toList(),
+            ],
+          ),
+        ),
       ],
+    );
+  }
+}
+
+class _CategoryFilterRow extends StatelessWidget {
+  final List<_CategoryWithEvents> sections;
+  final String? selectedId;
+  final void Function(String) onTap;
+
+  const _CategoryFilterRow({
+    required this.sections,
+    required this.selectedId,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 52,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemCount: sections.length,
+        itemBuilder: (_, i) {
+          final cat = sections[i].category;
+          final active = selectedId == cat.id;
+          return GestureDetector(
+            onTap: () => onTap(cat.id),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              decoration: BoxDecoration(
+                color: active ? _primary : _card,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: active ? _primary : _border),
+              ),
+              child: Text(
+                cat.name,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: active ? Colors.black : _muted,
+                ),
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }
@@ -647,6 +738,8 @@ class _CategorySection extends StatelessWidget {
   final void Function(Event, String) onTapEvent;
   final VoidCallback onCreateEvent;
   final VoidCallback? onDeleteCategory;
+  final Map<String, String> votedOptions;
+  final VoidCallback? onBreadcrumbTap;
 
   const _CategorySection({
     required this.section,
@@ -655,6 +748,8 @@ class _CategorySection extends StatelessWidget {
     required this.onTapEvent,
     required this.onCreateEvent,
     this.onDeleteCategory,
+    required this.votedOptions,
+    this.onBreadcrumbTap,
   });
 
   @override
@@ -723,25 +818,23 @@ class _CategorySection extends StatelessWidget {
         else
           LayoutBuilder(
             builder: (context, constraints) {
-              final cols = (constraints.maxWidth / 200).floor().clamp(2, 4);
-              return GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: cols,
-                  crossAxisSpacing: 10,
-                  mainAxisSpacing: 10,
-                  mainAxisExtent: 250,
-                ),
-                itemCount: section.events.length,
-                itemBuilder: (_, i) {
-                  final event = section.events[i];
-                  return _GridEventCard(
+              final cardWidth = constraints.maxWidth > 500
+                  ? (constraints.maxWidth - 20) / 3
+                  : (constraints.maxWidth - 10) / 2;
+              return Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: section.events.map((event) => SizedBox(
+                  width: cardWidth,
+                  child: EventCard(
                     event: event,
                     breadcrumb: breadcrumb,
                     onTap: () => onTapEvent(event, breadcrumb),
-                  );
-                },
+                    voted: votedOptions.containsKey(event.id),
+                    votedOptionId: votedOptions[event.id],
+                    onBreadcrumbTap: onBreadcrumbTap,
+                  ),
+                )).toList(),
               );
             },
           ),
@@ -751,12 +844,14 @@ class _CategorySection extends StatelessWidget {
   }
 }
 
-class _GridEventCard extends StatelessWidget {
+// _GridEventCard removido — usar EventCard de widgets/event_card.dart
+
+class _RemovedGridEventCard extends StatelessWidget {
   final Event event;
   final String breadcrumb;
   final VoidCallback onTap;
 
-  const _GridEventCard(
+  const _RemovedGridEventCard(
       {required this.event, required this.breadcrumb, required this.onTap});
 
   @override

@@ -73,12 +73,21 @@ class _TournamentPageState extends State<TournamentPage> {
 
   Future<void> _load() async {
     try {
-      final data = await Supabase.instance.client
+      // tenta buscar por slug primeiro, depois por id
+      List data = await Supabase.instance.client
           .from('tournaments')
           .select()
-          .eq('id', widget.tournamentId)
-          .single();
-      if (mounted) setState(() => _tournament = Tournament.fromJson(data));
+          .eq('slug', widget.tournamentId)
+          .limit(1);
+      if (data.isEmpty) {
+        data = await Supabase.instance.client
+            .from('tournaments')
+            .select()
+            .eq('id', widget.tournamentId)
+            .limit(1);
+      }
+      if (data.isEmpty) throw Exception('not found');
+      if (mounted) setState(() => _tournament = Tournament.fromJson(data.first));
     } catch (_) {
       if (mounted) setState(() => _error = true);
     }
@@ -127,12 +136,20 @@ class _LeaderboardPageState extends State<LeaderboardPage> {
 
   Future<void> _load() async {
     try {
-      final data = await Supabase.instance.client
+      List data = await Supabase.instance.client
           .from('tournaments')
           .select()
-          .eq('id', widget.tournamentId)
-          .single();
-      if (mounted) setState(() => _tournament = Tournament.fromJson(data));
+          .eq('slug', widget.tournamentId)
+          .limit(1);
+      if (data.isEmpty) {
+        data = await Supabase.instance.client
+            .from('tournaments')
+            .select()
+            .eq('id', widget.tournamentId)
+            .limit(1);
+      }
+      if (data.isEmpty) throw Exception('not found');
+      if (mounted) setState(() => _tournament = Tournament.fromJson(data.first));
     } catch (_) {}
   }
 
@@ -263,21 +280,11 @@ final router = GoRouter(
       builder: (_, __) => const UpdatePasswordScreen(),
     ),
     GoRoute(
-      path: '/torneio/:id',
-      builder: (_, state) =>
-          TournamentPage(tournamentId: state.pathParameters['id']!),
-    ),
-    GoRoute(
-      path: '/torneio/:id/leaderboard',
-      builder: (_, state) =>
-          LeaderboardPage(tournamentId: state.pathParameters['id']!),
-    ),
-    GoRoute(
       path: '/evento/:id',
       builder: (_, state) =>
           EventPage(eventId: state.pathParameters['id']!),
     ),
-    // Shell com bottom bar — Home e Perfil
+    // Shell com bottom bar
     ShellRoute(
       builder: (_, __, child) => AppShell(child: child),
       routes: [
@@ -288,6 +295,16 @@ final router = GoRouter(
         GoRoute(
           path: '/perfil',
           builder: (_, __) => const ProfileScreen(),
+        ),
+        GoRoute(
+          path: '/torneio/:id',
+          builder: (_, state) =>
+              TournamentPage(tournamentId: state.pathParameters['id']!),
+        ),
+        GoRoute(
+          path: '/torneio/:id/leaderboard',
+          builder: (_, state) =>
+              LeaderboardPage(tournamentId: state.pathParameters['id']!),
         ),
       ],
     ),
