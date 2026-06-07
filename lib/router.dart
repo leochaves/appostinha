@@ -37,7 +37,7 @@ class _SplashPage extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('Apostinha',
+              Text('APPostinha',
                   style: TextStyle(
                       color: Color(0xFF00C851),
                       fontSize: 28,

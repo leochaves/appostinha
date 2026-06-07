@@ -44,6 +44,10 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
+# Variáveis de ambiente
+.env
+.env.local
+
 # Pastas extras
 /home-direct-tap/
 /Usersleochdesenvapostinhahome-direct-tap/

@@ -147,7 +147,7 @@ class _AuthScreenState extends State<AuthScreen> {
               const Icon(Icons.casino_rounded, size: 72, color: Color(0xFF00C851)),
               const SizedBox(height: 12),
               const Text(
-                'Apostinha',
+                'APPostinha',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 36,

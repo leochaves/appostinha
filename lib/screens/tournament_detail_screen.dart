@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/tournament.dart';
 import '../models/category_model.dart';
 import '../models/event.dart';
+import '../widgets/app_logo.dart';
 import '../widgets/event_card.dart';
 import 'admins_screen.dart';
 import 'create_category_screen.dart';
@@ -210,7 +211,7 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
   }
 
   void _openEvent(Event event, String breadcrumb) {
-    context.push('/evento/${event.id}');
+    context.push('/evento/${event.id}').then((_) => _load());
   }
 
   void _editDescription() {
@@ -1056,15 +1057,7 @@ class _DetailAppBar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          const Text(
-            'APOSTINHA',
-            style: TextStyle(
-              color: _primary,
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
-              letterSpacing: -0.5,
-            ),
-          ),
+          const AppBarBrand(),
           const SizedBox(width: 10),
           Expanded(
             child: Column(

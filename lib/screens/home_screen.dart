@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/tournament.dart';
-import '../widgets/app_logo.dart';
+import '../widgets/app_logo.dart'; // AppBarBrand + AppLogo
 import 'create_tournament_screen.dart';
 
 const _bg = Color(0xFF0D1117);
@@ -141,17 +141,7 @@ class _AppBar extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const AppLogo(size: 36),
-          const SizedBox(width: 10),
-          const Text(
-            'APPostinha',
-            style: TextStyle(
-              color: _primary,
-              fontSize: 22,
-              fontWeight: FontWeight.w900,
-              letterSpacing: -0.5,
-            ),
-          ),
+          const AppBarBrand(logoSize: 36, fontSize: 22),
           const Spacer(),
           GestureDetector(
             onTap: () => context.go('/perfil'),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/event.dart';
+import '../widgets/app_logo.dart';
 import '../models/bet_option.dart';
 import '../services/vote_session.dart';
 
@@ -620,12 +621,7 @@ class _EventAppBar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          const Text('APOSTINHA',
-              style: TextStyle(
-                  color: _primary,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: -0.5)),
+          const AppBarBrand(),
           const SizedBox(width: 10),
           Expanded(
             child: Column(

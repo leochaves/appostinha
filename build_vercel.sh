@@ -15,4 +15,7 @@ export PATH="$PATH:$FLUTTER_DIR/bin"
 
 flutter config --no-analytics
 flutter pub get
-flutter build web --release
+flutter build web --release \
+  --dart-define=SUPABASE_URL="${SUPABASE_URL}" \
+  --dart-define=SUPABASE_KEY="${SUPABASE_KEY}" \
+  --dart-define=APP_URL="${APP_URL}"

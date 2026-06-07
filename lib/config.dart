@@ -1,6 +1,14 @@
-const supabaseUrl = 'https://ebplborfebygjushkbsi.supabase.co';
-const supabaseAnonKey = 'sb_publishable_aGm_WnMSjSmADp3A9lsi3w_RShHY2Zd';
+const supabaseUrl = String.fromEnvironment(
+  'SUPABASE_URL',
+  defaultValue: 'https://ebplborfebygjushkbsi.supabase.co',
+);
 
-// Em desenvolvimento: 'http://localhost:3000'
-// Em produção: URL do seu domínio
-const appRedirectUrl = 'http://localhost:3000';
+const supabaseAnonKey = String.fromEnvironment(
+  'SUPABASE_KEY',
+  defaultValue: 'sb_publishable_aGm_WnMSjSmADp3A9lsi3w_RShHY2Zd',
+);
+
+const appRedirectUrl = String.fromEnvironment(
+  'APP_URL',
+  defaultValue: 'http://localhost:3000',
+);

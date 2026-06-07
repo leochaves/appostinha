@@ -1,5 +1,33 @@
 import 'package:flutter/material.dart';
 
+/// Logo + nome em linha — use no lugar do texto 'APOSTINHA' em todas as AppBars
+class AppBarBrand extends StatelessWidget {
+  final double logoSize;
+  final double fontSize;
+
+  const AppBarBrand({super.key, this.logoSize = 28, this.fontSize = 18});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        AppLogo(size: logoSize),
+        const SizedBox(width: 8),
+        Text(
+          'APPostinha',
+          style: TextStyle(
+            color: const Color(0xFF00C851),
+            fontSize: fontSize,
+            fontWeight: FontWeight.w900,
+            letterSpacing: -0.5,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class AppLogo extends StatelessWidget {
   final double size;
   const AppLogo({super.key, this.size = 48});

@@ -54,11 +54,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
       final data = await Supabase.instance.client
           .from('bets')
           .select('user_id, status, profiles!inner(username)')
-          .inFilter('event_id',
-              // subquery via RPC não existe — fazemos em duas etapas:
-              // 1. buscar event_ids do torneio
-              await _getEventIds())
-          .neq('status', 'pending');
+          .inFilter('event_id', await _getEventIds());
 
       // agrupa por usuário
       final map = <String, _Entry>{};
@@ -106,8 +102,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     final events = await Supabase.instance.client
         .from('events')
         .select('id')
-        .inFilter('category_id', catIds)
-        .eq('status', 'resolved');
+        .inFilter('category_id', catIds);
 
     return (events as List).map((e) => e['id'] as String).toList();
   }
