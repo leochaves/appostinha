@@ -176,6 +176,8 @@ class _EventPageState extends State<EventPage> {
   String? _votingCode;
   bool _isAdmin = false;
   bool _error = false;
+  bool _isCoinMode = false;
+  String _coinName = 'Ficha';
 
   @override
   void initState() {
@@ -189,7 +191,7 @@ class _EventPageState extends State<EventPage> {
 
       final data = await Supabase.instance.client
           .from('events')
-          .select('*, options!options_event_id_fkey(*), categories!inner(name, tournament_id, tournaments!inner(name, created_by, voting_code))')
+          .select('*, options!options_event_id_fkey(*), categories!inner(name, tournament_id, tournaments!inner(name, created_by, voting_code, mode, coin_name))')
           .eq('id', widget.eventId)
           .single();
 
@@ -199,6 +201,8 @@ class _EventPageState extends State<EventPage> {
       final breadcrumb = '${tournament['name']} › ${cat['name']}';
       final tournamentId = cat['tournament_id'] as String;
       final votingCode = tournament['voting_code'] as String?;
+      final isCoinMode = (tournament['mode'] as String?) == 'coin';
+      final coinName = tournament['coin_name'] as String? ?? 'Ficha';
       final isAdmin = userId != null && tournament['created_by'] == userId;
 
       // checa tournament_admins também
@@ -222,6 +226,8 @@ class _EventPageState extends State<EventPage> {
           _isAdmin = isAdmin || adminFromTable;
           _tournamentId = tournamentId;
           _votingCode = votingCode;
+          _isCoinMode = isCoinMode;
+          _coinName = coinName;
         });
       }
     } catch (_) {
@@ -253,7 +259,9 @@ class _EventPageState extends State<EventPage> {
         isAdmin: _isAdmin,
         breadcrumb: _breadcrumb,
         tournamentId: _tournamentId,
-        votingCode: _votingCode);
+        votingCode: _votingCode,
+        isCoinMode: _isCoinMode,
+        coinName: _coinName);
   }
 }
 

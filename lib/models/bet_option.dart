@@ -3,12 +3,14 @@ class BetOption {
   final String eventId;
   final String title;
   final int predictionCount;
+  final int coinPool;
 
   BetOption({
     required this.id,
     required this.eventId,
     required this.title,
     required this.predictionCount,
+    this.coinPool = 0,
   });
 
   factory BetOption.fromJson(Map<String, dynamic> json) => BetOption(
@@ -16,6 +18,7 @@ class BetOption {
         eventId: json['event_id'] as String,
         title: json['title'] as String,
         predictionCount: (json['prediction_count'] ?? json['total_pool'] ?? 0) as int,
+        coinPool: (json['coin_pool'] ?? 0) as int,
       );
 
   double odds(int totalPredictions) {

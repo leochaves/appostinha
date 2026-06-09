@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/error_utils.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/tournament.dart';
@@ -6,7 +7,7 @@ import '../models/category_model.dart';
 import '../models/event.dart';
 import '../widgets/app_logo.dart';
 import '../widgets/event_card.dart';
-import 'admins_screen.dart';
+import 'tournament_admin_screen.dart';
 import 'create_category_screen.dart';
 import 'create_event_screen.dart';
 
@@ -43,13 +44,17 @@ class TournamentDetailScreen extends StatefulWidget {
 class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
   List<_CategoryWithEvents> _sections = [];
   List<_LeaderEntry> _top3 = [];
-  Map<String, String> _votedOptions = {}; // eventId → optionId
+  Map<String, List<String>> _votedOptions = {}; // eventId → [optionIds]
   String? _filterCategoryId;
+  String? _filterStatus; // null = todos, 'open', 'closed', 'resolved'
   bool _loading = true;
   String? _adminRole;
+  String? _memberStatus; // null = não membro, 'pending', 'approved', 'rejected'
+  bool _joining = false;
 
   bool get _isAdmin => _adminRole != null;
   bool get _isOwner => _adminRole == 'owner';
+  bool get _isApprovedMember => _memberStatus == 'approved';
 
   @override
   void initState() {
@@ -89,6 +94,7 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
       }
 
       String? adminRole;
+      String? memberStatus;
       if (userId != null) {
         final adminData = await Supabase.instance.client
             .from('tournament_admins')
@@ -97,51 +103,81 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
             .eq('user_id', userId)
             .maybeSingle();
         adminRole = adminData?['role'] as String?;
+
+        final memberData = await Supabase.instance.client
+            .from('tournament_members')
+            .select('status')
+            .eq('tournament_id', widget.tournament.id)
+            .eq('user_id', userId)
+            .maybeSingle();
+        memberStatus = memberData?['status'] as String?;
       }
 
       // top 3 leaderboard
       List<_LeaderEntry> top3 = [];
       try {
-        final resolvedEventIds = eventsByCat.values
-            .expand((evs) => evs.where((e) => e.status == 'resolved').map((e) => e.id))
-            .toList();
+        if (widget.tournament.isCoinMode) {
+          // modo moeda: ordena por lucro
+          final membersData = await Supabase.instance.client
+              .from('tournament_members')
+              .select('user_id, coins, initial_coins, bonus_coins, profiles!inner(username)')
+              .eq('tournament_id', widget.tournament.id)
+              .eq('status', 'approved');
 
-        if (resolvedEventIds.isNotEmpty) {
-          final betsData = await Supabase.instance.client
-              .from('bets')
-              .select('user_id, status, profiles!inner(username)')
-              .inFilter('event_id', resolvedEventIds)
-              .neq('status', 'pending');
-
-          final map = <String, _LeaderEntry>{};
-          for (final row in betsData as List) {
-            final uid = row['user_id'] as String;
-            final status = row['status'] as String;
-            final uname = (row['profiles'] as Map)['username'] as String? ?? 'Usuário';
-            final e = map[uid] ?? _LeaderEntry(userId: uid, username: uname, wins: 0, total: 0);
-            map[uid] = _LeaderEntry(
-              userId: uid, username: uname,
-              wins: e.wins + (status == 'won' ? 1 : 0),
-              total: e.total + 1,
-            );
-          }
-          top3 = map.values.toList()
-            ..sort((a, b) => b.wins != a.wins
-                ? b.wins.compareTo(a.wins)
-                : (b.total > 0 ? b.wins / b.total : 0)
-                    .compareTo(a.total > 0 ? a.wins / a.total : 0));
+          top3 = (membersData as List).map((m) => _LeaderEntry(
+            userId:       m['user_id'] as String,
+            username:     (m['profiles'] as Map)['username'] as String? ?? 'Usuário',
+            wins:         (m['coins'] as int? ?? 0) - (m['initial_coins'] as int? ?? 0) - (m['bonus_coins'] as int? ?? 0),
+            total:        m['coins'] as int? ?? 0,
+          )).toList()
+            ..sort((a, b) => b.wins.compareTo(a.wins));
           if (top3.length > 3) top3 = top3.sublist(0, 3);
+        } else {
+          // modo palpite: ordena por acertos
+          final allEventIds = eventsByCat.values
+              .expand((evs) => evs.map((e) => e.id))
+              .toList();
+
+          if (allEventIds.isNotEmpty) {
+            final betsData = await Supabase.instance.client
+                .from('bets')
+                .select('user_id, status, profiles!inner(username)')
+                .inFilter('event_id', allEventIds);
+
+            final map = <String, _LeaderEntry>{};
+            for (final row in betsData as List) {
+              final uid    = row['user_id'] as String;
+              final status = row['status'] as String;
+              final uname  = (row['profiles'] as Map)['username'] as String? ?? 'Usuário';
+              final e = map[uid] ?? _LeaderEntry(userId: uid, username: uname, wins: 0, total: 0);
+              map[uid] = _LeaderEntry(
+                userId: uid, username: uname,
+                wins:  e.wins  + (status == 'won' ? 1 : 0),
+                total: e.total + 1,
+              );
+            }
+            top3 = map.values.toList()
+              ..sort((a, b) => b.wins != a.wins
+                  ? b.wins.compareTo(a.wins)
+                  : (b.total > 0 ? b.wins / b.total : 0)
+                      .compareTo(a.total > 0 ? a.wins / a.total : 0));
+            if (top3.length > 3) top3 = top3.sublist(0, 3);
+          }
         }
       } catch (_) {}
 
-      // busca eventos votados pelo usuário
-      Map<String, String> votedIds = {};
+      // busca eventos votados pelo usuário (suporta múltiplas apostas por evento)
+      Map<String, List<String>> votedIds = {};
       if (userId != null) {
         final betsData = await Supabase.instance.client
             .from('bets')
             .select('event_id, option_id')
             .eq('user_id', userId);
-        votedIds = {for (final b in betsData as List) b['event_id'] as String: b['option_id'] as String};
+        for (final b in betsData as List) {
+          final eid = b['event_id'] as String;
+          final oid = b['option_id'] as String;
+          votedIds.putIfAbsent(eid, () => []).add(oid);
+        }
       }
 
       if (mounted) {
@@ -155,6 +191,7 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
               .toList();
           _top3 = top3;
           _adminRole = adminRole;
+          _memberStatus = memberStatus;
           _loading = false;
         });
       }
@@ -194,9 +231,10 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
                   ));
                 }
               } catch (e) {
+      debugPrint('ERRO [tournament_detail_screen.dart]: $e');
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Erro: $e'), backgroundColor: Colors.red),
+                    SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
                   );
                 }
               }
@@ -270,9 +308,10 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
                       .eq('id', widget.tournament.id);
                   _load();
                 } catch (e) {
+      debugPrint('ERRO [tournament_detail_screen.dart]: $e');
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Erro: $e'), backgroundColor: Colors.red),
+                      SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
                     );
                   }
                 }
@@ -357,9 +396,10 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
                     ));
                   }
                 } catch (e) {
+      debugPrint('ERRO [tournament_detail_screen.dart]: $e');
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Erro: $e'), backgroundColor: Colors.red));
+                        SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red));
                   }
                 }
               },
@@ -379,6 +419,96 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
     );
   }
 
+  Future<void> _joinTournament() async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) {
+      context.push('/auth?redirect=${Uri.encodeComponent('/torneio/${widget.tournament.slug ?? widget.tournament.id}')}');
+      return;
+    }
+
+    String? code;
+    final hasCode = widget.tournament.votingCode != null && widget.tournament.votingCode!.isNotEmpty;
+    if (hasCode) {
+      final ctrl = TextEditingController();
+      String? err;
+      final ok = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, set) => AlertDialog(
+            backgroundColor: _card,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Row(children: [
+              Text('🔒 ', style: TextStyle(fontSize: 20)),
+              Text('Código de acesso'),
+            ]),
+            content: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Text('Este torneio exige um código para entrar.',
+                  style: TextStyle(color: _muted, fontSize: 13)),
+              const SizedBox(height: 16),
+              TextField(
+                controller: ctrl,
+                autofocus: true,
+                textCapitalization: TextCapitalization.characters,
+                decoration: InputDecoration(
+                  hintText: 'Digite o código',
+                  errorText: err,
+                  filled: true, fillColor: _bg,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: _primary)),
+                ),
+              ),
+            ]),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancelar', style: TextStyle(color: _muted))),
+              FilledButton(
+                onPressed: () {
+                  if (ctrl.text.trim().toUpperCase() == widget.tournament.votingCode!.toUpperCase()) {
+                    Navigator.pop(ctx, true);
+                  } else {
+                    set(() => err = 'Código incorreto');
+                  }
+                },
+                style: FilledButton.styleFrom(backgroundColor: _primary, foregroundColor: Colors.black),
+                child: const Text('Entrar', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (ok != true) return;
+      code = ctrl.text.trim();
+    }
+
+    setState(() => _joining = true);
+    try {
+      final result = await Supabase.instance.client.rpc('join_tournament', params: {
+        'p_tournament_id': widget.tournament.id,
+        if (code != null) 'p_voting_code': code,
+      }) as String;
+
+      if (mounted) {
+        setState(() => _memberStatus = result);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(result == 'approved'
+              ? '✅ Você entrou no torneio!'
+              : '⏳ Solicitação enviada! Aguarde aprovação do admin.'),
+          backgroundColor: result == 'approved' ? _primary : _gold,
+        ));
+        if (result == 'approved') _load();
+      }
+    } catch (e) {
+      debugPrint('ERRO [tournament_detail_screen.dart]: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red));
+      }
+    } finally {
+      if (mounted) setState(() => _joining = false);
+    }
+  }
+
   void _openCreateCategory() async {
     final created = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
@@ -391,7 +521,11 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
   void _openCreateEvent(String categoryId) async {
     final created = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
-        builder: (_) => CreateEventScreen(categoryId: categoryId),
+        builder: (_) => CreateEventScreen(
+          categoryId: categoryId,
+          isCoinMode: widget.tournament.isCoinMode,
+          coinName: widget.tournament.coinName,
+        ),
       ),
     );
     if (created == true) _load();
@@ -420,9 +554,10 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
                     .eq('id', cat.id);
                 _load();
               } catch (e) {
+      debugPrint('ERRO [tournament_detail_screen.dart]: $e');
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Erro: $e'), backgroundColor: Colors.red),
+                    SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
                   );
                 }
               }
@@ -448,15 +583,23 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
               isActive: widget.tournament.isActive,
               onBack: () => context.canPop() ? context.pop() : context.go('/'),
               onLeaderboard: () => context.push('/torneio/${widget.tournament.slug ?? widget.tournament.id}/leaderboard'),
-              onVotingCode: _isOwner ? _editVotingCode : null,
-              onAward: _isOwner ? _awardChampions : null,
-              onAdmins: _isOwner
+              onAdminPanel: _isAdmin
                   ? () => Navigator.of(context)
                       .push(MaterialPageRoute(
-                          builder: (_) =>
-                              AdminsScreen(tournament: widget.tournament)))
+                          builder: (_) => TournamentAdminScreen(
+                                tournament: widget.tournament,
+                                onChanged: _load,
+                              )))
                       .then((_) => _load())
                   : null,
+            ),
+            // Banner de participação (só para não-admins)
+            if (!_loading && !_isAdmin) _MembershipBanner(
+              status: _memberStatus,
+              isCoinMode: widget.tournament.isCoinMode,
+              coinName: widget.tournament.coinName,
+              joining: _joining,
+              onJoin: _joinTournament,
             ),
             Expanded(
               child: _loading
@@ -545,6 +688,8 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
         _descriptionCard(),
         if (_top3.isNotEmpty) _LeaderboardCard(
           top3: _top3,
+          isCoinMode: widget.tournament.isCoinMode,
+          coinName: widget.tournament.coinName,
           onViewAll: () => context.push('/torneio/${widget.tournament.slug ?? widget.tournament.id}/leaderboard'),
         ),
         const SizedBox(height: 80),
@@ -573,6 +718,8 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: _LeaderboardCard(
             top3: _top3,
+            isCoinMode: widget.tournament.isCoinMode,
+            coinName: widget.tournament.coinName,
             onViewAll: () => context.push('/torneio/${widget.tournament.slug ?? widget.tournament.id}/leaderboard'),
           ),
         ),
@@ -584,6 +731,13 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
             onTap: (id) => setState(() =>
                 _filterCategoryId = _filterCategoryId == id ? null : id),
           ),
+        // chips de filtro por status
+        _StatusFilterRow(
+          sections: _sections,
+          filterCategoryId: _filterCategoryId,
+          selected: _filterStatus,
+          onTap: (s) => setState(() => _filterStatus = (s == null || _filterStatus == s) ? null : s),
+        ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Column(
@@ -602,6 +756,9 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
               onBreadcrumbTap: () => setState(() =>
                 _filterCategoryId = _filterCategoryId == s.category.id ? null : s.category.id,
               ),
+              isCoinMode: widget.tournament.isCoinMode,
+              coinName: widget.tournament.coinName,
+              filterStatus: _filterStatus,
             )).toList(),
             ],
           ),
@@ -660,11 +817,103 @@ class _CategoryFilterRow extends StatelessWidget {
   }
 }
 
+class _StatusFilterRow extends StatelessWidget {
+  final List<_CategoryWithEvents> sections;
+  final String? filterCategoryId;
+  final String? selected;
+  final void Function(String?) onTap;
+
+  const _StatusFilterRow({
+    required this.sections,
+    required this.filterCategoryId,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final events = sections
+        .where((s) => filterCategoryId == null || s.category.id == filterCategoryId)
+        .expand((s) => s.events)
+        .toList();
+
+    final open     = events.where((e) => e.isOpen).length;
+    final closed   = events.where((e) => !e.isOpen && e.status != 'resolved').length;
+    final resolved = events.where((e) => e.status == 'resolved').length;
+
+    if (events.isEmpty) return const SizedBox.shrink();
+
+    return SizedBox(
+      height: 48,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        children: [
+          _statusChip('Todos', events.length, null, _muted),
+          const SizedBox(width: 8),
+          _statusChip('Abertos', open, 'open', _primary),
+          const SizedBox(width: 8),
+          _statusChip('Fechados', closed, 'closed', Colors.orange),
+          const SizedBox(width: 8),
+          _statusChip('Encerrados', resolved, 'resolved', _gold),
+        ],
+      ),
+    );
+  }
+
+  Widget _statusChip(String label, int count, String? value, Color color) {
+    final active = selected == value;
+    return GestureDetector(
+      onTap: () => onTap(value),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        decoration: BoxDecoration(
+          color: active ? color.withValues(alpha: 0.18) : color.withValues(alpha: 0.07),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: active ? color.withValues(alpha: 0.7) : color.withValues(alpha: 0.3),
+            width: active ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(label,
+                style: TextStyle(
+                    color: active ? color : color.withValues(alpha: 0.7),
+                    fontSize: 11,
+                    fontWeight: active ? FontWeight.w900 : FontWeight.w600)),
+            const SizedBox(width: 5),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: active ? 0.25 : 0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text('$count',
+                  style: TextStyle(
+                      color: color, fontSize: 10, fontWeight: FontWeight.w900)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _LeaderboardCard extends StatelessWidget {
   final List<_LeaderEntry> top3;
   final VoidCallback onViewAll;
+  final bool isCoinMode;
+  final String coinName;
 
-  const _LeaderboardCard({required this.top3, required this.onViewAll});
+  const _LeaderboardCard({
+    required this.top3,
+    required this.onViewAll,
+    required this.isCoinMode,
+    required this.coinName,
+  });
 
   static const _medals = ['🥇', '🥈', '🥉'];
   static const _colors = [_gold, Color(0xFFC0C0C0), Color(0xFFCD7F32)];
@@ -684,45 +933,45 @@ class _LeaderboardCard extends StatelessWidget {
         children: [
           Row(children: [
             const Text('LEADERBOARD',
-                style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1.5,
-                    color: _gold)),
+                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800,
+                    letterSpacing: 1.5, color: _gold)),
             const Spacer(),
             GestureDetector(
               onTap: onViewAll,
               child: const Text('Ver todos →',
-                  style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                      color: _muted)),
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: _muted)),
             ),
           ]),
           const SizedBox(height: 12),
           ...top3.asMap().entries.map((e) {
-            final rank = e.key;
+            final rank  = e.key;
             final entry = e.value;
             final color = _colors[rank];
-            final accuracy = entry.total > 0
-                ? '${(entry.wins / entry.total * 100).round()}%'
-                : '—';
+
+            final String mainText;
+            final String subText;
+            if (isCoinMode) {
+              final profit = entry.wins; // wins = lucro no modo coin (reaproveitado)
+              mainText = '${profit >= 0 ? '+' : ''}$profit $coinName${profit.abs() != 1 ? 's' : ''}';
+              subText  = '${entry.total} atual'; // total = coins atual
+            } else {
+              mainText = '${entry.wins} acertos';
+              subText  = entry.total > 0
+                  ? '${(entry.wins / entry.total * 100).round()}%' : '—';
+            }
+
             return Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: Row(children: [
                 Text(_medals[rank], style: const TextStyle(fontSize: 18)),
                 const SizedBox(width: 10),
-                Expanded(
-                  child: Text(entry.username,
-                      style: const TextStyle(
-                          fontSize: 14, fontWeight: FontWeight.bold),
-                      overflow: TextOverflow.ellipsis),
-                ),
-                Text('${entry.wins} acertos',
+                Expanded(child: Text(entry.username,
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                    overflow: TextOverflow.ellipsis)),
+                Text(mainText,
                     style: TextStyle(fontSize: 12, color: color, fontWeight: FontWeight.bold)),
                 const SizedBox(width: 8),
-                Text(accuracy,
-                    style: TextStyle(fontSize: 11, color: _muted)),
+                Text(subText, style: const TextStyle(fontSize: 11, color: _muted)),
               ]),
             );
           }),
@@ -739,8 +988,11 @@ class _CategorySection extends StatelessWidget {
   final void Function(Event, String) onTapEvent;
   final VoidCallback onCreateEvent;
   final VoidCallback? onDeleteCategory;
-  final Map<String, String> votedOptions;
+  final Map<String, List<String>> votedOptions;
   final VoidCallback? onBreadcrumbTap;
+  final bool isCoinMode;
+  final String coinName;
+  final String? filterStatus;
 
   const _CategorySection({
     required this.section,
@@ -749,13 +1001,24 @@ class _CategorySection extends StatelessWidget {
     required this.onTapEvent,
     required this.onCreateEvent,
     this.onDeleteCategory,
-    required this.votedOptions,
+    required this.votedOptions, // eventId → [optionIds]
     this.onBreadcrumbTap,
+    this.isCoinMode = false,
+    this.coinName = 'Ficha',
+    this.filterStatus,
   });
 
   @override
   Widget build(BuildContext context) {
     final breadcrumb = '$tournamentName › ${section.category.name}';
+    final visibleEvents = filterStatus == null
+        ? section.events
+        : section.events.where((e) {
+            if (filterStatus == 'open')     return e.isOpen;
+            if (filterStatus == 'closed')   return !e.isOpen && e.status != 'resolved';
+            if (filterStatus == 'resolved') return e.status == 'resolved';
+            return true;
+          }).toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -808,11 +1071,13 @@ class _CategorySection extends StatelessWidget {
             ],
           ),
         ),
-        if (section.events.isEmpty)
+        if (visibleEvents.isEmpty)
           Padding(
             padding: const EdgeInsets.only(bottom: 16),
             child: Text(
-              isAdmin ? 'Nenhum evento. Toque em "+ Evento" para criar.' : 'Nenhum evento ainda.',
+              section.events.isEmpty
+                  ? (isAdmin ? 'Nenhum evento. Toque em "+ Evento" para criar.' : 'Nenhum evento ainda.')
+                  : 'Nenhum evento neste filtro.',
               style: const TextStyle(color: _muted, fontSize: 12),
             ),
           )
@@ -825,15 +1090,17 @@ class _CategorySection extends StatelessWidget {
               return Wrap(
                 spacing: 10,
                 runSpacing: 10,
-                children: section.events.map((event) => SizedBox(
+                children: visibleEvents.map((event) => SizedBox(
                   width: cardWidth,
                   child: EventCard(
                     event: event,
                     breadcrumb: breadcrumb,
                     onTap: () => onTapEvent(event, breadcrumb),
                     voted: votedOptions.containsKey(event.id),
-                    votedOptionId: votedOptions[event.id],
+                    votedOptionIds: votedOptions[event.id] ?? [],
                     onBreadcrumbTap: onBreadcrumbTap,
+                    isCoinMode: isCoinMode,
+                    coinName: coinName,
                   ),
                 )).toList(),
               );
@@ -1012,6 +1279,97 @@ class _RemovedGridEventCard extends StatelessWidget {
   }
 }
 
+// Banner de participação
+class _MembershipBanner extends StatelessWidget {
+  final String? status; // null = não membro
+  final bool isCoinMode;
+  final String coinName;
+  final bool joining;
+  final VoidCallback onJoin;
+
+  const _MembershipBanner({
+    required this.status,
+    required this.isCoinMode,
+    required this.coinName,
+    required this.joining,
+    required this.onJoin,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // aprovado: sem banner
+    if (status == 'approved') return const SizedBox.shrink();
+
+    final Color color;
+    final String icon;
+    final String title;
+    final String subtitle;
+    final bool showButton;
+
+    if (status == 'pending') {
+      color = _gold;
+      icon = '⏳';
+      title = 'Aguardando aprovação';
+      subtitle = 'O admin precisa aprovar sua entrada antes de você votar.';
+      showButton = false;
+    } else if (status == 'rejected') {
+      color = Colors.red;
+      icon = '🚫';
+      title = 'Acesso negado';
+      subtitle = 'Sua solicitação foi recusada pelo organizador.';
+      showButton = false;
+    } else {
+      // null — não membro
+      color = _primary;
+      icon = '🎯';
+      title = 'Participe deste torneio';
+      subtitle = isCoinMode
+          ? 'Entre para receber suas $coinName${coinName.endsWith('s') ? '' : 's'} e começar a apostar!'
+          : 'Entre para registrar seus palpites e aparecer no ranking!';
+      showButton = true;
+    }
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+      ),
+      child: Row(children: [
+        Text(icon, style: const TextStyle(fontSize: 22)),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(title,
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: color)),
+            const SizedBox(height: 2),
+            Text(subtitle,
+                style: const TextStyle(fontSize: 11, color: _muted)),
+          ]),
+        ),
+        if (showButton) ...[
+          const SizedBox(width: 10),
+          joining
+              ? const SizedBox(width: 20, height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: _primary))
+              : FilledButton(
+                  onPressed: onJoin,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _primary,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  child: const Text('Entrar', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                ),
+        ],
+      ]),
+    );
+  }
+}
+
 // AppBar
 class _DetailAppBar extends StatelessWidget {
   final String title;
@@ -1019,9 +1377,7 @@ class _DetailAppBar extends StatelessWidget {
   final bool isActive;
   final VoidCallback onBack;
   final VoidCallback onLeaderboard;
-  final VoidCallback? onVotingCode;
-  final VoidCallback? onAward;
-  final VoidCallback? onAdmins;
+  final VoidCallback? onAdminPanel;
 
   const _DetailAppBar({
     required this.title,
@@ -1029,9 +1385,7 @@ class _DetailAppBar extends StatelessWidget {
     required this.isActive,
     required this.onBack,
     required this.onLeaderboard,
-    this.onVotingCode,
-    this.onAward,
-    this.onAdmins,
+    this.onAdminPanel,
   });
 
   @override
@@ -1093,45 +1447,17 @@ class _DetailAppBar extends StatelessWidget {
               child: const Icon(Icons.leaderboard_outlined, color: _muted, size: 18),
             ),
           ),
-          if (onVotingCode != null) ...[
+          if (onAdminPanel != null) ...[
             const SizedBox(width: 8),
             GestureDetector(
-              onTap: onVotingCode,
+              onTap: onAdminPanel,
               child: Container(
                 width: 36, height: 36,
                 decoration: BoxDecoration(
-                  border: Border.all(color: _border),
+                  border: Border.all(color: _primary.withValues(alpha: 0.5)),
                   borderRadius: BorderRadius.circular(18),
                 ),
-                child: const Center(child: Text('🔒', style: TextStyle(fontSize: 15))),
-              ),
-            ),
-          ],
-          if (onAward != null) ...[
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: onAward,
-              child: Container(
-                width: 36, height: 36,
-                decoration: BoxDecoration(
-                  border: Border.all(color: _gold.withValues(alpha: 0.5)),
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: const Center(child: Text('🏆', style: TextStyle(fontSize: 16))),
-              ),
-            ),
-          ],
-          if (onAdmins != null) ...[
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: onAdmins,
-              child: Container(
-                width: 36, height: 36,
-                decoration: BoxDecoration(
-                  border: Border.all(color: _border),
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: const Icon(Icons.group_outlined, color: _muted, size: 18),
+                child: const Icon(Icons.settings_outlined, color: _primary, size: 18),
               ),
             ),
           ],

@@ -1,11 +1,11 @@
 const supabaseUrl = String.fromEnvironment(
   'SUPABASE_URL',
-  defaultValue: 'https://ebplborfebygjushkbsi.supabase.co',
+  defaultValue: 'https://kfsccpuyvebzwfkhldrf.supabase.co',
 );
 
 const supabaseAnonKey = String.fromEnvironment(
   'SUPABASE_KEY',
-  defaultValue: 'sb_publishable_aGm_WnMSjSmADp3A9lsi3w_RShHY2Zd',
+  defaultValue: 'sb_publishable_oW6oVwK9EZ_ESd2BAMc6HA_yF8ya4kw',
 );
 
 const appRedirectUrl = String.fromEnvironment(

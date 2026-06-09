@@ -13,8 +13,10 @@ class EventCard extends StatelessWidget {
   final String breadcrumb;
   final VoidCallback onTap;
   final bool voted;
-  final String? votedOptionId;
+  final List<String> votedOptionIds;
   final VoidCallback? onBreadcrumbTap;
+  final bool isCoinMode;
+  final String coinName;
 
   const EventCard({
     super.key,
@@ -22,16 +24,21 @@ class EventCard extends StatelessWidget {
     required this.breadcrumb,
     required this.onTap,
     this.voted = false,
-    this.votedOptionId,
+    this.votedOptionIds = const [],
     this.onBreadcrumbTap,
+    this.isCoinMode = false,
+    this.coinName = 'Ficha',
   });
 
   @override
   Widget build(BuildContext context) {
     final total = event.totalPredictions;
+    final totalCoinPool = event.options.fold(0, (s, o) => s + o.coinPool);
     final isResolved = event.status == 'resolved';
     final opts = [...event.options]
-      ..sort((a, b) => b.predictionCount.compareTo(a.predictionCount));
+      ..sort((a, b) => isCoinMode
+          ? b.coinPool.compareTo(a.coinPool)
+          : b.predictionCount.compareTo(a.predictionCount));
 
     final borderColor = isResolved
         ? _gold.withValues(alpha: 0.3)
@@ -104,14 +111,37 @@ class EventCard extends StatelessWidget {
             ...opts.take(4).toList().asMap().entries.map((entry) {
               final isWinner = event.winningOptionId == opts[entry.key].id;
               final o = entry.value;
-              final isMyVote = votedOptionId == o.id;
-              final pct = total > 0
-                  ? (o.predictionCount / total * 100).round()
-                  : 0;
-              final leadPct = total > 0
-                  ? (opts.first.predictionCount / total * 100).round()
-                  : 0;
-              final isLeading = pct > 0 && pct == leadPct;
+              final isMyVote = votedOptionIds.contains(o.id);
+
+              // valores dependem do modo
+              final double fillFactor;
+              final String rightLabel;
+              final bool isLeading;
+              if (isCoinMode) {
+                fillFactor = totalCoinPool > 0
+                    ? (o.coinPool / totalCoinPool).clamp(0.0, 1.0)
+                    : 0.0;
+                final odd = totalCoinPool > 0 && o.coinPool > 0
+                    ? totalCoinPool / o.coinPool
+                    : 0.0;
+                rightLabel = odd > 0
+                    ? (odd == odd.truncateToDouble()
+                        ? '${odd.toInt()}x'
+                        : '${odd.toStringAsFixed(2)}x')
+                    : '—';
+                isLeading = entry.key == 0 && o.coinPool > 0;
+              } else {
+                final pct = total > 0
+                    ? (o.predictionCount / total * 100).round()
+                    : 0;
+                final leadPct = total > 0
+                    ? (opts.first.predictionCount / total * 100).round()
+                    : 0;
+                fillFactor = (pct / 100).clamp(0.0, 1.0);
+                rightLabel = total > 0 ? '$pct%' : '—';
+                isLeading = pct > 0 && pct == leadPct;
+              }
+
               final fillColor = isWinner
                   ? _gold.withValues(alpha: 0.25)
                   : isMyVote
@@ -131,9 +161,9 @@ class EventCard extends StatelessWidget {
                 ),
                 clipBehavior: Clip.hardEdge,
                 child: Stack(children: [
-                  if (total > 0)
+                  if (fillFactor > 0)
                     FractionallySizedBox(
-                      widthFactor: (pct / 100).clamp(0.0, 1.0),
+                      widthFactor: fillFactor,
                       child: Container(color: fillColor),
                     ),
                   Padding(
@@ -155,7 +185,7 @@ class EventCard extends StatelessWidget {
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          total > 0 ? '$pct%' : '—',
+                          rightLabel,
                           style: TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.bold,
@@ -184,95 +214,82 @@ class EventCard extends StatelessWidget {
 
   Widget _buildFooter(List opts) {
     final isResolved = event.status == 'resolved';
-    final votedOption = votedOptionId != null
-        ? event.options.where((o) => o.id == votedOptionId).firstOrNull
-        : null;
+    final isClosed   = !event.isOpen && !isResolved;
+    final votedOptions = event.options.where((o) => votedOptionIds.contains(o.id)).toList();
+    final hasVote = votedOptions.isNotEmpty;
 
-    if (votedOption != null && !isResolved) {
-      // já votou e ainda não resolvido
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 10),
-        decoration: BoxDecoration(
-          color: _primary.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: _primary.withValues(alpha: 0.3)),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.check_circle, color: _primary, size: 11),
-            const SizedBox(width: 5),
-            Flexible(
-              child: Text(
-                votedOption.title.toUpperCase(),
-                style: const TextStyle(
-                    fontSize: 10, fontWeight: FontWeight.w900,
-                    letterSpacing: 0.8, color: _primary),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
-      );
+    // badge de estado do evento
+    final Widget stateBadge;
+    if (isResolved) {
+      stateBadge = _pill(color: _gold,          icon: Icons.emoji_events_outlined, label: 'ENCERRADO');
+    } else if (isClosed) {
+      stateBadge = _pill(color: Colors.orange,  icon: Icons.lock_outline,          label: 'FECHADO');
+    } else {
+      stateBadge = _pill(color: _primary,       icon: Icons.radio_button_checked,  label: 'ABERTO');
     }
 
-    // resolvido + usuário votou → mostrar acerto ou erro
-    if (isResolved && votedOptionId != null) {
-      final hit = votedOptionId == event.winningOptionId;
-      final color = hit ? _primary : Colors.red;
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: color.withValues(alpha: 0.35)),
-        ),
-        child: Center(
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(hit ? Icons.check_circle : Icons.cancel, color: color, size: 12),
-              const SizedBox(width: 5),
-              Text(
-                hit ? 'ACERTEI' : 'ERREI',
-                style: TextStyle(
-                    fontSize: 10, fontWeight: FontWeight.w900,
-                    letterSpacing: 1, color: color),
-              ),
-            ],
-          ),
-        ),
+    // badge de participação do usuário
+    final Widget userBadge;
+    if (isResolved && hasVote) {
+      final hit = votedOptionIds.contains(event.winningOptionId);
+      userBadge = _pill(
+        color: hit ? _primary : Colors.red,
+        icon:  hit ? Icons.check_circle : Icons.cancel,
+        label: hit ? 'ACERTEI' : 'ERREI',
       );
+    } else if (hasVote) {
+      final label = votedOptions.map((o) => o.title.toUpperCase()).join(' · ');
+      userBadge = _pill(color: _primary, icon: Icons.how_to_vote, label: label);
+    } else if (event.isOpen) {
+      userBadge = _pill(color: _primary, icon: null, label: 'VOTAR', trailingArrow: true);
+    } else {
+      userBadge = _pill(color: _muted, icon: Icons.remove_circle_outline, label: 'SEM VOTO');
     }
 
+    return Row(
+      children: [
+        stateBadge,
+        const SizedBox(width: 6),
+        Expanded(child: userBadge),
+      ],
+    );
+  }
+
+  Widget _pill({
+    required Color color,
+    required String label,
+    IconData? icon,
+    bool trailingArrow = false,
+  }) {
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
       decoration: BoxDecoration(
-        color: isResolved
-            ? _gold.withValues(alpha: 0.08)
-            : event.isOpen
-                ? _primary.withValues(alpha: 0.12)
-                : _muted.withValues(alpha: 0.06),
+        color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(
-          color: isResolved
-              ? _gold.withValues(alpha: 0.3)
-              : event.isOpen
-                  ? _primary.withValues(alpha: 0.3)
-                  : _border,
-        ),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
       ),
-      child: Center(
-        child: Text(
-          isResolved ? 'RESOLVIDO' : event.isOpen ? 'VOTAR' : 'FECHADO',
-          style: TextStyle(
-              fontSize: 10, fontWeight: FontWeight.w900,
-              letterSpacing: 1,
-              color: isResolved ? _gold : event.isOpen ? _primary : _muted),
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, color: color, size: 11),
+            const SizedBox(width: 4),
+          ],
+          Flexible(
+            child: Text(
+              label,
+              style: TextStyle(
+                  fontSize: 10, fontWeight: FontWeight.w900,
+                  letterSpacing: 0.8, color: color),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (trailingArrow) ...[
+            const SizedBox(width: 3),
+            Icon(Icons.arrow_forward, color: color, size: 10),
+          ],
+        ],
       ),
     );
   }

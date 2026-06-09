@@ -50,14 +50,70 @@ class _AuthScreenState extends State<AuthScreen> {
         }
       }
     } on AuthException catch (e) {
+      debugPrint('AUTH AuthException: ${e.message} | statusCode: ${e.statusCode}');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message), backgroundColor: Colors.red),
+          SnackBar(content: Text(_friendlyAuthError(e.message)), backgroundColor: Colors.red),
+        );
+      }
+    } catch (e) {
+      debugPrint('AUTH ERROR: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_friendlyAuthError(e.toString())),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 6),
+            action: SnackBarAction(
+              label: 'detalhes',
+              textColor: Colors.white70,
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (_) => AlertDialog(
+                    backgroundColor: const Color(0xFF161B22),
+                    title: const Text('Erro técnico'),
+                    content: SelectableText(e.toString(),
+                        style: const TextStyle(fontSize: 12, color: Colors.white70)),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Fechar'),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
         );
       }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  String _friendlyAuthError(String raw) {
+    final r = raw.toLowerCase();
+    if (r.contains('invalid login') || r.contains('invalid credentials')) {
+      return 'Email ou senha incorretos.';
+    }
+    if (r.contains('email not confirmed')) {
+      return 'Confirme seu email antes de entrar.';
+    }
+    if (r.contains('user already registered') || r.contains('already been registered')) {
+      return 'Este email já está cadastrado. Faça login.';
+    }
+    if (r.contains('password should be at least')) {
+      return 'A senha precisa ter pelo menos 6 caracteres.';
+    }
+    if (r.contains('database error') || r.contains('querying schema')) {
+      return 'Erro ao conectar ao servidor. Tente novamente.';
+    }
+    if (r.contains('network') || r.contains('connection')) {
+      return 'Sem conexão. Verifique sua internet.';
+    }
+    return 'Erro ao entrar. Tente novamente.';
   }
 
   void _forgotPassword() {

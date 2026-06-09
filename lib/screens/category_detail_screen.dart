@@ -32,6 +32,7 @@ class CategoryDetailScreen extends StatefulWidget {
 class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
   List<Event> _events = [];
   bool _loading = true;
+  String? _filter; // null = todos, 'open', 'closed', 'resolved'
 
   @override
   void initState() {
@@ -63,7 +64,11 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
   Future<void> _openCreateEvent() async {
     final created = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
-        builder: (_) => CreateEventScreen(categoryId: widget.category.id),
+        builder: (_) => CreateEventScreen(
+          categoryId: widget.category.id,
+          isCoinMode: widget.tournament.isCoinMode,
+          coinName: widget.tournament.coinName,
+        ),
       ),
     );
     if (created == true) _load();
@@ -75,9 +80,19 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final open = _events.where((e) => e.isOpen).length;
+    final open     = _events.where((e) => e.isOpen).length;
+    final closed   = _events.where((e) => !e.isOpen && e.status != 'resolved').length;
     final resolved = _events.where((e) => e.status == 'resolved').length;
     final breadcrumb = '${widget.tournament.name} › ${widget.category.name}';
+
+    final filtered = _filter == null
+        ? _events
+        : _events.where((e) {
+            if (_filter == 'open')     return e.isOpen;
+            if (_filter == 'closed')   return !e.isOpen && e.status != 'resolved';
+            if (_filter == 'resolved') return e.status == 'resolved';
+            return true;
+          }).toList();
 
     return Scaffold(
       backgroundColor: _bg,
@@ -90,13 +105,26 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
               onBack: () => Navigator.of(context).pop(),
             ),
             if (_events.isNotEmpty)
-              Padding(
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
                 child: Row(
                   children: [
-                    _StatusChip(label: '$open abertos', color: _primary),
+                    _FilterChip(label: 'Todos', count: _events.length,
+                        color: _muted, active: _filter == null,
+                        onTap: () => setState(() => _filter = null)),
                     const SizedBox(width: 8),
-                    _StatusChip(label: '$resolved resolvidos', color: _gold),
+                    _FilterChip(label: 'Abertos', count: open,
+                        color: _primary, active: _filter == 'open',
+                        onTap: () => setState(() => _filter = _filter == 'open' ? null : 'open')),
+                    const SizedBox(width: 8),
+                    _FilterChip(label: 'Fechados', count: closed,
+                        color: Colors.orange, active: _filter == 'closed',
+                        onTap: () => setState(() => _filter = _filter == 'closed' ? null : 'closed')),
+                    const SizedBox(width: 8),
+                    _FilterChip(label: 'Encerrados', count: resolved,
+                        color: _gold, active: _filter == 'resolved',
+                        onTap: () => setState(() => _filter = _filter == 'resolved' ? null : 'resolved')),
                   ],
                 ),
               ),
@@ -121,15 +149,25 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
                                 ),
                               ),
                             ])
-                          : ListView.builder(
-                              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-                              itemCount: _events.length,
-                              itemBuilder: (_, i) => EventCard(
-                                event: _events[i],
-                                breadcrumb: breadcrumb,
-                                onTap: () => _openEvent(_events[i]),
-                              ),
-                            ),
+                          : filtered.isEmpty
+                              ? ListView(children: [
+                                  const SizedBox(
+                                    height: 200,
+                                    child: Center(
+                                      child: Text('Nenhum evento neste filtro.',
+                                          style: TextStyle(color: _muted)),
+                                    ),
+                                  ),
+                                ])
+                              : ListView.builder(
+                                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                                  itemCount: filtered.length,
+                                  itemBuilder: (_, i) => EventCard(
+                                    event: filtered[i],
+                                    breadcrumb: breadcrumb,
+                                    onTap: () => _openEvent(filtered[i]),
+                                  ),
+                                ),
                     ),
             ),
           ],
@@ -222,22 +260,58 @@ class _DetailAppBar extends StatelessWidget {
   }
 }
 
-class _StatusChip extends StatelessWidget {
+class _FilterChip extends StatelessWidget {
   final String label;
+  final int count;
   final Color color;
+  final bool active;
+  final VoidCallback onTap;
 
-  const _StatusChip({required this.label, required this.color});
+  const _FilterChip({
+    required this.label,
+    required this.count,
+    required this.color,
+    required this.active,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withValues(alpha: 0.4)),
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: active ? color.withValues(alpha: 0.18) : color.withValues(alpha: 0.07),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: active ? color.withValues(alpha: 0.7) : color.withValues(alpha: 0.3),
+            width: active ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(label,
+                style: TextStyle(
+                    color: active ? color : color.withValues(alpha: 0.7),
+                    fontSize: 11,
+                    fontWeight: active ? FontWeight.w900 : FontWeight.w600)),
+            const SizedBox(width: 5),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: active ? 0.25 : 0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text('$count',
+                  style: TextStyle(
+                      color: color, fontSize: 10, fontWeight: FontWeight.w900)),
+            ),
+          ],
+        ),
       ),
-      child: Text(label, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold)),
     );
   }
 }

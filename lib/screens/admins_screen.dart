@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/error_utils.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/tournament_admin.dart';
 import '../models/tournament.dart';
@@ -79,9 +80,10 @@ class _AdminsScreenState extends State<AdminsScreen> {
         ));
       }
     } catch (e) {
+      debugPrint('ERRO [admins_screen.dart]: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Erro: $e'),
+          content: Text(friendlyError(e)),
           backgroundColor: Colors.red,
         ));
       }
@@ -105,9 +107,10 @@ class _AdminsScreenState extends State<AdminsScreen> {
         ));
       }
     } catch (e) {
+      debugPrint('ERRO [admins_screen.dart]: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Erro: $e'),
+          content: Text(friendlyError(e)),
           backgroundColor: Colors.red,
         ));
       }

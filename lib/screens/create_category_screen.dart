@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/error_utils.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class CreateCategoryScreen extends StatefulWidget {
@@ -39,9 +40,10 @@ class _CreateCategoryScreenState extends State<CreateCategoryScreen> {
       });
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
+      debugPrint('ERRO [create_category_screen.dart]: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {

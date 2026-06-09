@@ -43,6 +43,7 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       }
     } catch (e) {
+      debugPrint('ERRO [home_screen.dart]: $e');
       if (mounted) setState(() => _loading = false);
     }
   }
